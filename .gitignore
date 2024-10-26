@@ -9,6 +9,11 @@
 /client/coverage
 
 
+# production
+/build
+/client/build
+/dist
+
 
 # misc
 .DS_Store
