@@ -13,7 +13,6 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-
 // 커스텀 morgan 포맷 정의
 morgan.token('ip', (req) => {
     return req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -44,11 +43,17 @@ app.get('*', (req, res) => {
 });
 
 // WebSocket 연결 처리
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {  // req 파라미터 추가
   console.log('New client connected');
   const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   console.log(`New WebSocket connection from IP: ${ip}`);
   let userId = null;
+
+  // heartbeat 체크를 위한 변수 추가
+  ws.isAlive = true;
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
 
   ws.on('message', (message) => {
     try {
@@ -87,6 +92,11 @@ wss.on('connection', (ws) => {
       }
     } catch (error) {
       console.error('메시지 처리 중 에러:', error);
+      // 에러 발생 시 클라이언트에게 에러 메시지 전송
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: '메시지 처리 중 오류가 발생했습니다.'
+      }));
     }
   });
 
@@ -103,8 +113,29 @@ wss.on('connection', (ws) => {
         }
       });
     }
-    console.log('Client disconnected');
+    console.log(`Client disconnected from IP: ${ip}`);
   });
+
+  ws.on('error', (error) => {
+    console.error(`WebSocket error from IP ${ip}:`, error);
+  });
+});
+
+// heartbeat 체크 인터벌 설정
+const interval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      // heartbeat 실패 시 연결 종료
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+// 서버 종료 시 인터벌 정리
+wss.on('close', () => {
+  clearInterval(interval);
 });
 
 const PORT = process.env.PORT || 8080;
